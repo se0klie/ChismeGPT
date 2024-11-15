@@ -144,32 +144,32 @@ void* processRequirement(void *args) {
                     user->req = buf;
                 }
 
-                // if (strstr(user->req, "CHAO\n") == 0) {
-                //     user->isClosed = true;
-                //     printf("User ID %d closed.\n", user->id);
-                //     execUsers[selfIndex] = NULL;
-                //     free(user);
-                //     close(user->connfd);
-                //     user= NULL;
-                // } else {
-                //     usleep(1000);  
-                //     write(user->connfd, "Processing...", strlen("Processing..."));
-                //     struct item_q *newUs = malloc(sizeof(struct item_q));
-                //     newUs->user = user;
-                //     newUs->user->req = NULL;
-                //     if (!user->isClosed) {
-                //         if(newUs->user->priority == 60){
-                //             sem_wait(&postClientsSem);
-                //             TAILQ_INSERT_TAIL(&paidClients,newUs,entries);
-                //             sem_post(&postClientsSem);
-                //         } else {
-                //             sem_wait(&waitCLientsSem);
-                //             TAILQ_INSERT_TAIL(&waitingUsers,newUs,entries);
-                //             sem_post(&waitCLientsSem);
-                //         }
-                //     }
-                //     free(newUs);
-                // }
+                if (strstr(user->req, "CHAO\n") == 0) {
+                    user->isClosed = true;
+                    printf("User ID %d closed.\n", user->id);
+                    execUsers[selfIndex] = NULL;
+                    free(user);
+                    close(user->connfd);
+                    user= NULL;
+                } else {
+                    usleep(1000);  
+                    write(user->connfd, "Processing...", strlen("Processing..."));
+                    struct item_q *newUs = malloc(sizeof(struct item_q));
+                    newUs->user = user;
+                    newUs->user->req = NULL;
+                    if (!user->isClosed) {
+                        if(newUs->user->priority == 60){
+                            sem_wait(&postClientsSem);
+                            TAILQ_INSERT_TAIL(&paidClients,newUs,entries);
+                            sem_post(&postClientsSem);
+                        } else {
+                            sem_wait(&waitCLientsSem);
+                            TAILQ_INSERT_TAIL(&waitingUsers,newUs,entries);
+                            sem_post(&waitCLientsSem);
+                        }
+                    }
+                    free(newUs);
+                }
             }
         }
         // printf("Bloq");
@@ -179,8 +179,6 @@ void* processRequirement(void *args) {
     free(buf);
     return NULL;
 }
-
-
 void *schedule() {
     User *userToSchedule;
     struct item_q *user;
@@ -198,38 +196,39 @@ void *schedule() {
         while (userToSchedule != NULL) {
             printf("User to schedule %d\n",userToSchedule->priority);
             int isBeingUsed = sem_trywait(&semArray[index]);
-
-            if (isBeingUsed == -1) { //is already blocked
-                if (execUsers[index] != NULL){
-                    if(execUsers[index]->priority < userToSchedule->priority) {
-                        printf("[SWAP MESSAGE]\n");
-                        user = execUsers[index];
-                        execUsers[index] = NULL;
-                        execUsers[index] = userToSchedule;
-                        userToSchedule = NULL;
-
-                        sem_wait(&waitingUsers);
-                        TAILQ_INSERT_TAIL(&waitingUsers, user, entries);
-                        sem_post(&waitingUsers);
-                        user = NULL;
-                        printf("Finished swapping...\n");
-                        printf("USER[i] id %d\n",execUsers[index]->id);
-                    } 
-                } else {
-                    printf("Put in empty space.\n");
-                        execUsers[index] = userToSchedule;
-                        userToSchedule = NULL;
-                }
-                sem_post(&semArray[index]);
-            } else {
-                printf("Not blocked\n");
+            if(isBeingUsed == -1){
+                perror("sem");
             }
+            // if (isBeingUsed == -1) { 
+            //     if (execUsers[index] != NULL){
+            //         if(execUsers[index]->priority < userToSchedule->priority) {
+            //             printf("[SWAP MESSAGE]\n");
+            //             user = execUsers[index];
+            //             execUsers[index] = NULL;
+            //             execUsers[index] = userToSchedule;
+            //             userToSchedule = NULL;
+
+            //             sem_wait(&waitingUsers);
+            //             TAILQ_INSERT_TAIL(&waitingUsers, user, entries);
+            //             sem_post(&waitingUsers);
+            //             user = NULL;
+            //             printf("Finished swapping...\n");
+            //             printf("USER[i] id %d\n",execUsers[index]->id);
+            //         } 
+            //     } else {
+            //         printf("Put in empty space.\n");
+            //             execUsers[index] = userToSchedule;
+            //             userToSchedule = NULL;
+            //     }
+            //     sem_post(&semArray[index]);
+            // } 
 
             index = (index + 1) % maxUserThreads;
         }
         index = 0;
     }
 }
+
 
 void * prioritize() {
     struct item_q *user = NULL;
@@ -321,7 +320,10 @@ int main(int argc, char **argv) {
             perror("Failed to allocate memory for execUsers[i]");
             exit(1);
         }
-        sem_init(&semArray[i],0,1);
+        if(sem_init(&semArray[i],0,1)<0){
+            perror("sem");
+            exit(1);
+        }
         if (pthread_create(&threads[i], NULL, processRequirement, (void *)index) != 0) {
             perror("Failed to create thread");
             exit(EXIT_FAILURE);
