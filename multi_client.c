@@ -4,15 +4,15 @@
 #include <fcntl.h>
 
 #include "common.h"
-void runClient(char *message) {
-    // Convert integers to strings
-    char intervalStr[10];
+void runClient(char *message, char* numMessages) {
 
     // Create an array of arguments for execvp
     char *buf[] = {
         "./client",
         "-t",
         message,
+        "-n",
+        numMessages,
         NULL            // Null-terminate the array
     };
 
@@ -29,20 +29,19 @@ void runClient(char *message) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <num_clients>\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "Usage: %s <num_clients> <num_message_p_client>\n", argv[0]);
         return 1;
     }
 
     int numClients = atoi(argv[1]);  // Number of clients to launch
-    int frequency = 2;  // Frequency (in seconds) for each client to wait between messages
 
     for (int i = 0; i < numClients; i++) {
         printf("Starting client %d...\n", i + 1);
         if(i%2==0){
-            runClient("POST");  // Call function to start client
+            runClient("POST",argv[2]);  // Call function to start client
         } else {
-            runClient("PRE");  // Call function to start client
+            runClient("PRE", argv[2]);  // Call function to start client
         }
     }
 
