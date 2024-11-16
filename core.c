@@ -6,7 +6,7 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <semaphore.h>
-#include "list.h"
+#include "linkedlist.h"
 #include "common.h"
 
 #define MAXTHREADS 10
@@ -20,9 +20,9 @@ typedef struct User {
     int messagesLeft;
 } User;
 
-List *prepaidClientsQueue;
-List *postpaidClientsQueue;
-List *waitingClientsQueue; 
+Linkedlist *prepaidClientsQueue;
+Linkedlist *postpaidClientsQueue;
+Linkedlist *waitingClientsQueue; 
 
 int actualClientsInt = 0;
 int maxUserThreads = 0;
@@ -47,17 +47,14 @@ void separar_tokens(char *linea, char *delim, char *tokens[2])
     char *token;
     int i = 0;
 
-    /* Obtiene el primer token */
     token = strtok(linea, delim);
 
-    /* Recorre todos los tokens y los guarda en el búfer */
     while (token != NULL && i < 2) {
-        tokens[i] = token; // Almacena el token en el arreglo
+        tokens[i] = token; 
         i++;
         token = strtok(NULL, delim);
     }
 
-    /* Si hay menos de 2 tokens, inicializa los faltantes como NULL */
     while (i < 2) {
         tokens[i] = NULL;
         i++;
@@ -115,7 +112,7 @@ User * createUser(int connfd) {
     return newUser;  
 }
 
- void* processRequirement(void *args) {
+void* processRequirement(void *args) {
     pthread_detach(pthread_self());
     int selfIndex = *(int *) args;
     free(args);
@@ -127,7 +124,6 @@ User * createUser(int connfd) {
         user=execUsers[selfIndex];
         if(user!=NULL){
             if(!user->isClosed){
-                // printf("[THREAD #%d] Processing user id %d with priority %d and request: %s\n",selfIndex,user->id,user->priority,user->req);
                 user->messagesLeft--;
 
                 if(user->priority == 20){
@@ -138,7 +134,6 @@ User * createUser(int connfd) {
                             printf("[UPGRADE!] User ID %d has been upgraded to premium\n",user->id);
                             user->priority = 60;
                         } else {
-                            printf("[LIMIT!] User %d closed due to max reached.\n",user->id);
                             user->isClosed = true;
                         }
                     }
@@ -150,10 +145,10 @@ User * createUser(int connfd) {
                 usleep(1000);
             } else {
                 if(user->messagesLeft>0){
-                    printf("User id %d, FD: %d, priority %d has finished with %d messages left.\n",user->id,user->connfd ,user->priority, user->messagesLeft);
+                    printf("[CLOSED!] User id %d, FD: %d, priority %d has finished with %d messages left.\n",user->id,user->connfd ,user->priority, user->messagesLeft);
 
                 } else {
-                    printf("User id %d, FD: %d, and priority %d has finished processing succesfully.\n",user->id, user->connfd,user->priority);
+                    printf("[SUCCESS] User id %d, FD: %d, and priority %d has finished processing succesfully.\n",user->id, user->connfd,user->priority);
                 }
                 close(user->connfd);
                 execUsers[selfIndex] = NULL;
@@ -193,7 +188,7 @@ void *schedule() {
                     userToSchedule = NULL;
 
                     sem_wait(&waitCLientsSem);
-                    tailInsert(waitingClientsQueue,(void*)prepaid);
+                    insertLast(waitingClientsQueue,(void*)prepaid);
                     prepaid = NULL;
                     sem_post(&waitCLientsSem);
 
@@ -206,7 +201,6 @@ void *schedule() {
             index ++;
             if(index==maxUserThreads) index = 0;
         }
-        index = 0;
     }
 }
 
@@ -218,14 +212,14 @@ void * prioritize() {
     while(1){
         sem_wait(&postClientsSem);
             if(postpaidClientsQueue->length>0){
-                user = (User *)pop(postpaidClientsQueue,0);
+                user = (User *)getFromList(postpaidClientsQueue,0);
             }
         sem_post(&postClientsSem);
 
         sem_wait(&waitCLientsSem);
         if(user==NULL){
             if(waitingClientsQueue->length > 0){
-                user = (User *)pop(waitingClientsQueue,0);
+                user = (User *)getFromList(waitingClientsQueue,0);
             }
         }
         sem_post(&waitCLientsSem);
@@ -233,7 +227,7 @@ void * prioritize() {
         sem_wait(&preClientsSem);
         if(user ==NULL){
             if(prepaidClientsQueue->length > 0){
-                user = (User*)pop(prepaidClientsQueue,0);
+                user = (User*)getFromList(prepaidClientsQueue,0);
             }
         }
         sem_post(&preClientsSem);
@@ -265,9 +259,9 @@ int main(int argc, char **argv) {
     sem_init(&preClientsSem,0,1);
     sem_init(&nextClientSem,0,1);
     
-    prepaidClientsQueue = newList();
-    postpaidClientsQueue = newList();
-    waitingClientsQueue = newList();
+    prepaidClientsQueue = createLinkedlist();
+    postpaidClientsQueue = createLinkedlist();
+    waitingClientsQueue = createLinkedlist();
 
     pthread_t threads[MAXTHREADS];
     pthread_t logic_threads[2];
@@ -347,11 +341,11 @@ int main(int argc, char **argv) {
 
         if(user->priority==60){
             sem_wait(&postClientsSem);
-            tailInsert(postpaidClientsQueue,(void *)user);
+            insertLast(postpaidClientsQueue,(void *)user);
             sem_post(&postClientsSem);
         } else {
             sem_wait(&preClientsSem);
-            tailInsert(prepaidClientsQueue,(void *)user);
+            insertLast(prepaidClientsQueue,(void *)user);
             sem_post(&preClientsSem);
         }
 
