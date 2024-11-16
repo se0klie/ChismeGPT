@@ -1,33 +1,25 @@
-DEPS = common.h
-CFLAGS = -Wall -c -g
-DFLAGS =  # Default to no flags
+CC = gcc
+CFLAGS = -g
+SRCS = core.c common.c list.c
+HEADER = common.h list.h
+OBJS = $(SRCS:.c=.o)
+TARGET = core
+CLIENT_TARGET = client
+MULTI_CLIENT_TARGET = multi_client
 
-.PHONY: all debug sanitize clean
+all: $(TARGET) $(CLIENT_TARGET) $(MULTI_CLIENT_TARGET)
 
-# Main targets to build the programs
-all: core client multi_client
+$(TARGET): $(OBJS)
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS)
 
-core: core.o common.o $(DEPS)
-	gcc -o $@ core.o common.o $(DFLAGS) -lpthread
+$(CLIENT_TARGET): client.o common.o list.o
+	$(CC) $(CFLAGS) -o $(CLIENT_TARGET) client.o common.o list.o -lm
 
-client: client.o common.o $(DEPS)
-	gcc -o $@ client.o common.o $(DFLAGS) -lpthread
+$(MULTI_CLIENT_TARGET): multi_client.o common.o list.o
+	$(CC) $(CFLAGS) -o $(MULTI_CLIENT_TARGET) multi_client.o common.o list.o -lm
 
-multi_client: multi_client.o
-	gcc -o $@ multi_client.o -lpthread
+%.o: %.c $(HEADER)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile any .c file into .o file
-%.o: %.c $(DEPS)
-	gcc $(CFLAGS) $< $(DFLAGS)
-
-# Debug target to compile with debugging symbols
-debug: DFLAGS = -g
-debug: clean all
-
-# Sanitize target to enable AddressSanitizer and Undefined Behavior sanitizer
-sanitize: DFLAGS = -fsanitize=address,undefined
-sanitize: clean all
-
-# Clean up build artifacts
 clean:
-	rm -f *.o core client multi_client
+	rm -f *.o $(TARGET) $(CLIENT_TARGET) $(MULTI_CLIENT_TARGET)

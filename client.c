@@ -12,7 +12,7 @@
 #define MAXLINE 1024
 
 int clientfd;
-bool hasClosed = false;  // Use atomic flag for simplicity
+bool hasClosed = false;  
 char *header = NULL;
 
 int numMessages = 1;
@@ -26,6 +26,12 @@ void *receiveMessages(void *arg) {
         if (n > 0) {
             read_buffer[n] = '\0';
             printf("Received from server: %s\n", read_buffer);
+
+            if(strstr(read_buffer,"POST")!=NULL){
+                printf("I have been upgraded.\n");
+                header = "POST";
+            }
+
         } else if (n == 0) {
             printf("Server disconnected.\n");
             break;
@@ -41,8 +47,6 @@ void *receiveMessages(void *arg) {
 
     return NULL;
 }
-
-
 void *sendMessages(void *arg) {
     char *message = "Automated message."; // Default message
     char *buffer = malloc(MAXLINE);
@@ -50,28 +54,25 @@ void *sendMessages(void *arg) {
         perror("Memory allocation failed");
         return NULL;
     }
-    snprintf(buffer, MAXLINE, "%s, %s", header, message);
 
-    for (int i = 0; i < numMessages; i++) {
-        ssize_t len = strlen(buffer);
-        if (write(clientfd, buffer, len) != len) {
-            perror("Error writing to server");
-            break;
-        }
-        printf("Sent message %d: %s\n", i + 1, buffer);
-    }
+    int index = numMessages;
+    // Prepare each message with header and automated message
+    snprintf(buffer, MAXLINE, "%d|%s %s",numMessages, header, message);
 
-    char *closeMessage = "CHAO\n";
-    if (write(clientfd, closeMessage, strlen(closeMessage)) <= 0) {
-        perror("Error writing close message to server");
+    ssize_t len = strlen(buffer);
+    if (write(clientfd, buffer, len) != len) {
+        perror("Error writing to server");
     }
-    printf("Sent close message 'CHAO'.\n");
+    printf("Sent message %d: %s\n", index--,buffer);
+    
 
     close(clientfd);  // Close the socket
     free(buffer);
 
     return NULL;
 }
+
+
 
 int main(int argc, char **argv) {
     int opt;
@@ -92,11 +93,12 @@ int main(int argc, char **argv) {
                 break;
             case 'h':
             default:
-                printf("Usage: %s -t [type] -n [numMessages] [hostname] [port]\n", argv[0]);
+                printf("Usage: %s -t [type] -n [numMessages default 1] [hostname] [port]\n", argv[0]);
                 return 1;
         }
     }
-
+    
+    
     clientfd = open_clientfd(hostname, "8080");
     if (clientfd < 0) {
         perror("Connection failed");

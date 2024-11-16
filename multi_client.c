@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     }
 
     int numClients = atoi(argv[1]);  // Number of clients to launch
-
+    
     for (int i = 0; i < numClients; i++) {
         printf("Starting client %d...\n", i + 1);
         if(i%2==0){
@@ -49,6 +49,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < numClients; i++) {
         wait(NULL);  // Wait for each child process to finish
     }
+
 
     return 0;
 }
