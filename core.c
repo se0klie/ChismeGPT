@@ -208,9 +208,9 @@ void *schedule() {
                         execUsers[index] = userToSchedule;
                         userToSchedule = NULL;
 
-                        sem_wait(&waitingUsers);
+                        sem_wait(&waitCLientsSem);
                         TAILQ_INSERT_TAIL(&waitingUsers, swapUser, entries);  // Insert the user into waiting queue
-                        sem_post(&waitingUsers);
+                        sem_post(&waitCLientsSem);
 
                         swapUser = NULL;  // Clear temporary user reference
                         printf("Finished swapping...\n");

@@ -1,5 +1,5 @@
 DEPS = common.h
-CFLAGS = -Wall -c
+CFLAGS = -Wall -c -g
 DFLAGS =  # Default to no flags
 
 .PHONY: all debug sanitize clean
