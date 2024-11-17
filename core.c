@@ -37,10 +37,140 @@ sem_t nextClientSem;
 
 User **execUsers;
 
-//FUNCIONES
 void* prioritize();
+void separar_tokens(char *linea, char *delim, char *tokens[2]);
+User * createUser(int connfd);
+void* processRequirement(void *args);
+void *schedule();
+void * prioritize();
+void print_help(char *command);
 
-//lsof -t -i :8080 | xargs kill -9
+int main(int argc, char **argv) {
+    int listenfd;
+    struct sockaddr_in clientaddr;
+    int port = 8080;
+    unsigned int clientlen;
+
+    if(argc != 2){
+        print_help(argv[0]);
+        return 1;
+    }
+
+    sem_init(&postClientsSem,0,1);
+    sem_init(&waitCLientsSem,0,1);
+    sem_init(&preClientsSem,0,1);
+    sem_init(&nextClientSem,0,1);
+    
+    prepaidClientsQueue = createLinkedlist();
+    postpaidClientsQueue = createLinkedlist();
+    waitingClientsQueue = createLinkedlist();
+
+    pthread_t threads[MAXTHREADS];
+    pthread_t logic_threads[2];
+    maxUserThreads = (argc > 1) ? atoi(argv[1]) : MAXTHREADS;
+
+    semArray = malloc(maxUserThreads * sizeof(sem_t));
+    if (semArray == NULL) {
+        perror("Failed to allocate memory");
+        exit(1);
+    }
+
+    execUsers = malloc(maxUserThreads* sizeof(User *));
+    if (execUsers == NULL) {
+        perror("Failed to allocate memory");
+        exit(1);
+    }
+
+    listenfd = open_listenfd("8080");
+    if (listenfd < 0) {
+        connection_error(listenfd);
+    }
+
+    printf("Server listening on port %d...\n", port);
+
+    for (int i = 0; i < maxUserThreads; i++) {
+        execUsers[i] = malloc(sizeof(struct User)); 
+        int *index = malloc(sizeof(int));
+        *index = i;
+        if (execUsers[i] == NULL) {
+            perror("Failed to allocate memory for execUsers[i]");
+            exit(1);
+        }
+        if(sem_init(&semArray[i],0,1)<0){
+            perror("sem");
+            exit(1);
+        }
+        if (pthread_create(&threads[i], NULL, processRequirement, (void *)index) != 0) {
+            perror("Failed to create thread");
+            exit(EXIT_FAILURE);
+        }
+        execUsers[i] = NULL;
+
+
+    }
+
+    if (pthread_create(&logic_threads[0], NULL, prioritize, NULL) != 0) {
+        perror("Failed to create prioritize thread");
+        exit(EXIT_FAILURE);
+    }
+    if (pthread_create(&logic_threads[1], NULL, schedule, NULL) != 0) {
+        perror("Failed to create prioritize thread");
+        exit(EXIT_FAILURE);
+    }
+    
+    while (1) {
+        clientlen = sizeof(clientaddr);
+        int *connfd = malloc(sizeof(int));
+        
+        if (connfd == NULL) {
+            perror("malloc failed for connfd");
+            continue;
+        }
+
+        *connfd = accept(listenfd, (struct sockaddr *)&clientaddr, &clientlen);
+        if (*connfd < 0) {
+            perror("accept failed");
+            free(connfd);
+            continue;
+        }
+
+        User * user = createUser(*connfd);
+        if (user == NULL) {
+            perror("Failed to create user");
+            free(connfd);
+            continue; 
+        }
+
+        if(user->priority==60){
+            sem_wait(&postClientsSem);
+            insertLast(postpaidClientsQueue,(void *)user);
+            sem_post(&postClientsSem);
+        } else {
+            sem_wait(&preClientsSem);
+            insertLast(prepaidClientsQueue,(void *)user);
+            sem_post(&preClientsSem);
+        }
+
+        printf("New connection FD %d added to the queue.\n", *connfd);
+    }
+    for (int i = 0; i < maxUserThreads; i++) {
+        free(execUsers[i]);  
+        sem_destroy(&semArray[i]);
+    }
+    free(execUsers);
+    printf("All threads completed\n");
+    return 0;
+}
+
+
+void print_help(char *command)
+{
+	printf("uso:\n %s [-d] <numero_mensajes>\n", command);
+	printf(" %s -h\n", command);
+	printf("Opciones:\n");
+	printf(" -h\t\t\tAyuda, muestra este mensaje\n");
+	printf(" <numero_mensajes>\t\t\tNumero de mensajes recurrentes\n");
+}
 
 void separar_tokens(char *linea, char *delim, char *tokens[2])
 {
@@ -246,116 +376,4 @@ void * prioritize() {
             }
         }
     }
-}
-
-int main(int argc, char **argv) {
-    int listenfd;
-    struct sockaddr_in clientaddr;
-    int port = 8080;
-    unsigned int clientlen;
-
-    sem_init(&postClientsSem,0,1);
-    sem_init(&waitCLientsSem,0,1);
-    sem_init(&preClientsSem,0,1);
-    sem_init(&nextClientSem,0,1);
-    
-    prepaidClientsQueue = createLinkedlist();
-    postpaidClientsQueue = createLinkedlist();
-    waitingClientsQueue = createLinkedlist();
-
-    pthread_t threads[MAXTHREADS];
-    pthread_t logic_threads[2];
-    maxUserThreads = (argc > 1) ? atoi(argv[1]) : MAXTHREADS;
-
-    semArray = malloc(maxUserThreads * sizeof(sem_t));
-    if (semArray == NULL) {
-        perror("Failed to allocate memory");
-        exit(1);
-    }
-
-    execUsers = malloc(maxUserThreads* sizeof(User *));
-    if (execUsers == NULL) {
-        perror("Failed to allocate memory");
-        exit(1);
-    }
-
-    listenfd = open_listenfd("8080");
-    if (listenfd < 0) {
-        connection_error(listenfd);
-    }
-
-    printf("Server listening on port %d...\n", port);
-
-    for (int i = 0; i < maxUserThreads; i++) {
-        execUsers[i] = malloc(sizeof(struct User)); 
-        int *index = malloc(sizeof(int));
-        *index = i;
-        if (execUsers[i] == NULL) {
-            perror("Failed to allocate memory for execUsers[i]");
-            exit(1);
-        }
-        if(sem_init(&semArray[i],0,1)<0){
-            perror("sem");
-            exit(1);
-        }
-        if (pthread_create(&threads[i], NULL, processRequirement, (void *)index) != 0) {
-            perror("Failed to create thread");
-            exit(EXIT_FAILURE);
-        }
-        execUsers[i] = NULL;
-
-
-    }
-
-    if (pthread_create(&logic_threads[0], NULL, prioritize, NULL) != 0) {
-        perror("Failed to create prioritize thread");
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_create(&logic_threads[1], NULL, schedule, NULL) != 0) {
-        perror("Failed to create prioritize thread");
-        exit(EXIT_FAILURE);
-    }
-    
-    while (1) {
-        clientlen = sizeof(clientaddr);
-        int *connfd = malloc(sizeof(int));
-        
-        if (connfd == NULL) {
-            perror("malloc failed for connfd");
-            continue;
-        }
-
-        *connfd = accept(listenfd, (struct sockaddr *)&clientaddr, &clientlen);
-        if (*connfd < 0) {
-            perror("accept failed");
-            free(connfd);
-            continue;
-        }
-
-        User * user = createUser(*connfd);
-        if (user == NULL) {
-            perror("Failed to create user");
-            free(connfd);
-            continue; 
-        }
-
-        if(user->priority==60){
-            sem_wait(&postClientsSem);
-            insertLast(postpaidClientsQueue,(void *)user);
-            sem_post(&postClientsSem);
-        } else {
-            sem_wait(&preClientsSem);
-            insertLast(prepaidClientsQueue,(void *)user);
-            sem_post(&preClientsSem);
-        }
-
-        printf("New connection FD %d added to the queue.\n", *connfd);
-    }
-    for (int i = 0; i < maxUserThreads; i++) {
-        free(execUsers[i]);  
-        sem_destroy(&semArray[i]);
-    }
-    free(execUsers);
-    printf("All threads completed\n");
-    return 0;
 }

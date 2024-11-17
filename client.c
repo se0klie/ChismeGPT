@@ -15,7 +15,17 @@ int clientfd;
 bool hasClosed = false;  
 char *header = NULL;
 
-int numMessages = 1;
+int numMessages = 2;
+
+void print_help(char *command)
+{
+	printf("uso:\n %s [-t <tipo>] [-n <numero>] [-h]\n", command);
+	printf(" %s -h\n", command);
+	printf("Opciones:\n");
+	printf(" -h\t\t\tAyuda, muestra este mensaje\n");
+	printf("[-t <tipo>]\t\t\tTipo de cliente, PRE o POST.\n");
+    printf("[-n <numero>]\t\t\tNumero de mensajes a enviar. Por defecto, 2.\n");
+}
 
 void *receiveMessages(void *arg) {
     char read_buffer[MAXLINE + 1];
@@ -36,7 +46,6 @@ void *receiveMessages(void *arg) {
             printf("Server disconnected.\n");
             break;
         } else if (errno == EBADF) {
-            // Handle "Bad file descriptor" gracefully
             printf("Error: Bad file descriptor. Connection is likely closed.\n");
             break;
         } else if (errno != EINTR) {
@@ -48,7 +57,7 @@ void *receiveMessages(void *arg) {
     return NULL;
 }
 void *sendMessages(void *arg) {
-    char *message = "Automated message."; // Default message
+    char *message = "Automated message."; 
     char *buffer = malloc(MAXLINE);
     if (!buffer) {
         perror("Memory allocation failed");
@@ -56,7 +65,6 @@ void *sendMessages(void *arg) {
     }
 
     int index = numMessages;
-    // Prepare each message with header and automated message
     snprintf(buffer, MAXLINE, "%d|%s %s",numMessages, header, message);
 
     ssize_t len = strlen(buffer);
@@ -66,7 +74,7 @@ void *sendMessages(void *arg) {
     printf("Sent message %d: %s\n", index--,buffer);
     
 
-    close(clientfd);  // Close the socket
+    close(clientfd);  
     free(buffer);
 
     return NULL;
@@ -92,8 +100,9 @@ int main(int argc, char **argv) {
                 }
                 break;
             case 'h':
+                print_help(argv[0]);
             default:
-                printf("Usage: %s -t [type] -n [numMessages default 1] [hostname] [port]\n", argv[0]);
+                printf("Usage: %s -t [type] -n [numMessages default 2] \n", argv[0]);
                 return 1;
         }
     }
