@@ -31,18 +31,11 @@ int idClient = 0;
 sem_t scheduleSem;
 sem_t postClientsSem;
 sem_t preClientsSem;
-sem_t nextClientSem;
-sem_t clientsSem;
-
-void sumClient();
-void diffClient();
 
 void* prioritize();
 void separar_tokens(char *linea, char *delim, char *tokens[2]);
 User * createUser(int connfd);
 void* processRequirement(void *args);
-void *schedule();
-void * prioritize();
 void print_help(char *command);
 
 int main(int argc, char **argv) {
@@ -58,9 +51,7 @@ int main(int argc, char **argv) {
 
     sem_init(&postClientsSem,0,1);
     sem_init(&preClientsSem,0,1);
-    sem_init(&nextClientSem,0,1);
     sem_init(&scheduleSem,0,1);
-    sem_init(&clientsSem,0,1);
 
     prepaidClientsQueue = createLinkedlist();
     postpaidClientsQueue = createLinkedlist();
@@ -131,18 +122,6 @@ int main(int argc, char **argv) {
 
     printf("All threads completed\n");
     return 0;
-}
-
-void sumClient(){
-    sem_wait(&clientsSem);
-    actualClientsInt++;
-    sem_post(&clientsSem);
-}
-
-void diffClient(){
-    sem_wait(&clientsSem);
-    actualClientsInt--;
-    sem_post(&clientsSem);
 }
 
 void print_help(char *command)
