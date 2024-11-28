@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "*.ejs": "html",
-        "common.h": "c"
+        "common.h": "c",
+        "istream": "c"
     }
 }

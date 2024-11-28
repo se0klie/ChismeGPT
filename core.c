@@ -22,20 +22,20 @@ typedef struct User {
 
 Linkedlist *prepaidClientsQueue;
 Linkedlist *postpaidClientsQueue;
-Linkedlist *waitingClientsQueue; 
+
 
 int actualClientsInt = 0;
-int maxUserThreads = 0;
+int maxUserThreads = 1;
 int idClient = 0;
-User *readyUser;
 
-sem_t *semArray;
+sem_t scheduleSem;
 sem_t postClientsSem;
 sem_t preClientsSem;
-sem_t waitCLientsSem;
 sem_t nextClientSem;
+sem_t clientsSem;
 
-User **execUsers;
+void sumClient();
+void diffClient();
 
 void* prioritize();
 void separar_tokens(char *linea, char *delim, char *tokens[2]);
@@ -57,28 +57,22 @@ int main(int argc, char **argv) {
     }
 
     sem_init(&postClientsSem,0,1);
-    sem_init(&waitCLientsSem,0,1);
     sem_init(&preClientsSem,0,1);
     sem_init(&nextClientSem,0,1);
-    
+    sem_init(&scheduleSem,0,1);
+    sem_init(&clientsSem,0,1);
+
     prepaidClientsQueue = createLinkedlist();
     postpaidClientsQueue = createLinkedlist();
-    waitingClientsQueue = createLinkedlist();
 
     pthread_t threads[MAXTHREADS];
     pthread_t logic_threads[2];
-    maxUserThreads = (argc > 1) ? atoi(argv[1]) : MAXTHREADS;
-
-    semArray = malloc(maxUserThreads * sizeof(sem_t));
-    if (semArray == NULL) {
-        perror("Failed to allocate memory");
-        exit(1);
-    }
-
-    execUsers = malloc(maxUserThreads* sizeof(User *));
-    if (execUsers == NULL) {
-        perror("Failed to allocate memory");
-        exit(1);
+    if(argc >1){
+        if(atoi(argv[1])>0){
+            maxUserThreads = atoi(argv[1]);
+        } else {
+            printf("Numero de mensajes concurrentes invalido. Inicializando con 1.\n");
+        }
     }
 
     listenfd = open_listenfd("8080");
@@ -89,33 +83,15 @@ int main(int argc, char **argv) {
     printf("Server listening on port %d...\n", port);
 
     for (int i = 0; i < maxUserThreads; i++) {
-        execUsers[i] = malloc(sizeof(struct User)); 
         int *index = malloc(sizeof(int));
         *index = i;
-        if (execUsers[i] == NULL) {
-            perror("Failed to allocate memory for execUsers[i]");
-            exit(1);
-        }
-        if(sem_init(&semArray[i],0,1)<0){
-            perror("sem");
-            exit(1);
-        }
+        
         if (pthread_create(&threads[i], NULL, processRequirement, (void *)index) != 0) {
             perror("Failed to create thread");
             exit(EXIT_FAILURE);
         }
-        execUsers[i] = NULL;
 
 
-    }
-
-    if (pthread_create(&logic_threads[0], NULL, prioritize, NULL) != 0) {
-        perror("Failed to create prioritize thread");
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_create(&logic_threads[1], NULL, schedule, NULL) != 0) {
-        perror("Failed to create prioritize thread");
-        exit(EXIT_FAILURE);
     }
     
     while (1) {
@@ -150,18 +126,24 @@ int main(int argc, char **argv) {
             insertLast(prepaidClientsQueue,(void *)user);
             sem_post(&preClientsSem);
         }
-
         printf("New connection FD %d added to the queue.\n", *connfd);
     }
-    for (int i = 0; i < maxUserThreads; i++) {
-        free(execUsers[i]);  
-        sem_destroy(&semArray[i]);
-    }
-    free(execUsers);
+
     printf("All threads completed\n");
     return 0;
 }
 
+void sumClient(){
+    sem_wait(&clientsSem);
+    actualClientsInt++;
+    sem_post(&clientsSem);
+}
+
+void diffClient(){
+    sem_wait(&clientsSem);
+    actualClientsInt--;
+    sem_post(&clientsSem);
+}
 
 void print_help(char *command)
 {
@@ -246,12 +228,31 @@ void* processRequirement(void *args) {
     pthread_detach(pthread_self());
     int selfIndex = *(int *) args;
     free(args);
-    sem_t *mutex = &semArray[selfIndex]; 
-    User *user = NULL;
+    
+    User *user = NULL; //si no es nulo significa q no es postpago
 
     while (1) { 
-        sem_wait(mutex); 
-        user=execUsers[selfIndex];
+        
+        if(user !=NULL){
+            sem_wait(&postClientsSem);
+            if(user->priority == 20 && postpaidClientsQueue->length>0){
+                user = (User *)getFromList(postpaidClientsQueue,0);
+            }
+            sem_post(&postClientsSem);
+        } else {
+            sem_wait(&postClientsSem);
+            if(postpaidClientsQueue->length>0){
+                user = (User*)getFromList(postpaidClientsQueue,0);
+            }
+            sem_post(&postClientsSem);
+
+            sem_wait(&preClientsSem);
+            if(user == NULL && prepaidClientsQueue->length >0){
+                user = (User*)getFromList(prepaidClientsQueue,0);
+            }
+            sem_post(&preClientsSem);
+        }
+
         if(user!=NULL){
             if(!user->isClosed){
                 user->messagesLeft--;
@@ -263,7 +264,8 @@ void* processRequirement(void *args) {
                         if(user->id % 2 == 0){
                             printf("[UPGRADE!] User ID %d has been upgraded to premium\n",user->id);
                             user->priority = 60;
-                        } else {
+                        }
+                         else {
                             user->isClosed = true;
                         }
                     }
@@ -272,6 +274,7 @@ void* processRequirement(void *args) {
                 if(user->messagesLeft == 0){
                     user->isClosed = true;
                 }
+
                 usleep(1000);
             } else {
                 if(user->messagesLeft>0){
@@ -281,99 +284,9 @@ void* processRequirement(void *args) {
                     printf("[SUCCESS] User id %d, FD: %d, and priority %d has finished processing succesfully.\n",user->id, user->connfd,user->priority);
                 }
                 close(user->connfd);
-                execUsers[selfIndex] = NULL;
                 user = NULL;
             }
         }
-        sem_post(mutex);  
     }
-
     return NULL;
-}
-
- 
-void *schedule() {
-    struct User *userToSchedule = NULL;
-    struct User *prepaid;
-    int index = 0;
-
-    while (1) {
-        sem_wait(&nextClientSem);
-        userToSchedule = readyUser;
-        readyUser = NULL;
-        sem_post(&nextClientSem);
-
-        while (userToSchedule != NULL) {
-            int isBeingUsed = sem_trywait(&semArray[index]);
-            if(isBeingUsed==0){
-                if(execUsers[index] == NULL){
-                    execUsers[index] = userToSchedule;
-                    userToSchedule = NULL;
-                    sem_post(&semArray[index]);
-                    break;
-                } else if(execUsers[index]->priority== 20 && userToSchedule->priority == 60){
-                    
-                    prepaid = execUsers[index];
-                    execUsers[index] = userToSchedule;
-                    userToSchedule = NULL;
-
-                    sem_wait(&waitCLientsSem);
-                    insertLast(waitingClientsQueue,(void*)prepaid);
-                    prepaid = NULL;
-                    sem_post(&waitCLientsSem);
-
-                    sem_post(&semArray[index]);
-                    break; 
-                }
-            }
-            sem_post(&semArray[index]);
-
-            index ++;
-            if(index==maxUserThreads) index = 0;
-        }
-    }
-}
-
-
-
-
-void * prioritize() {
-    struct User *user = NULL;
-    while(1){
-        sem_wait(&postClientsSem);
-            if(postpaidClientsQueue->length>0){
-                user = (User *)getFromList(postpaidClientsQueue,0);
-            }
-        sem_post(&postClientsSem);
-
-        sem_wait(&waitCLientsSem);
-        if(user==NULL){
-            if(waitingClientsQueue->length > 0){
-                user = (User *)getFromList(waitingClientsQueue,0);
-            }
-        }
-        sem_post(&waitCLientsSem);
-        
-        sem_wait(&preClientsSem);
-        if(user ==NULL){
-            if(prepaidClientsQueue->length > 0){
-                user = (User*)getFromList(prepaidClientsQueue,0);
-            }
-        }
-        sem_post(&preClientsSem);
-        
-
-        if(user != NULL){
-            while(1){
-                sem_wait(&nextClientSem);
-                if(readyUser == NULL){
-                    readyUser = user;
-                    user = NULL;
-                    sem_post(&nextClientSem);
-                    break;
-                }
-                sem_post(&nextClientSem);
-            }
-        }
-    }
 }
